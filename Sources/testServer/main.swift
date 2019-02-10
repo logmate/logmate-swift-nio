@@ -1,7 +1,23 @@
+// Copyright © 2019 Florent Pillet
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy of this software
+// and associated documentation files (the "Software"), to deal in the Software without restriction,
+// including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense,
+// and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so,
+// subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all copies or substantial
+// portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
+// LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+// IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+// WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
+// OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 import Foundation
 import NIO
-import NSLogger_NIO
+import LogmateNIO
 
 fileprivate let nibbles = ["0","1","2","3","4","5","6","7","8","9","A","B","C","D","E","F"]
 
@@ -28,7 +44,7 @@ public final class PrintLogHandler: ChannelInboundHandler {
 				for i in 0 ..< min(16, data.count - offset) {
 					let c = pointer.advanced(by: offset + i).pointee
 					hex += "\(nibbles[Int(c >> 4)])\(nibbles[Int(c & 15)]) "
-					ascii += c >= 32 ? Unicode.Scalar(c).escaped(asASCII: true) : "."
+					ascii += c >= 32 ? Unicode.Scalar(c).escaped(asASCII: false) : "."
 				}
 				if hex.count < 48 {
 					hex += String(repeating: " ", count: 48 - hex.count)
@@ -53,11 +69,11 @@ public final class PrintLogHandler: ChannelInboundHandler {
 	}
 
 	public func channelActive(ctx: ChannelHandlerContext) {
-		print("channel active")
+		print("Incoming connection from \(String(describing: ctx.remoteAddress))")
 	}
 
 	public func channelInactive(ctx: ChannelHandlerContext) {
-		print("channel inactive")
+		print("Remote \(String(describing: ctx.remoteAddress)) disconnected")
 	}
 
 	public func channelRead(ctx: ChannelHandlerContext, data: NIOAny) {
@@ -112,12 +128,11 @@ let bootstrap = ServerBootstrap(group: group)
 	.serverChannelOption(ChannelOptions.socket(SocketOptionLevel(SOL_SOCKET), SO_REUSEADDR), value: 1)
 	.childChannelInitializer { channel in
 		channel.pipeline.addHandlers([
-			NSLoggerHandler(),
+			LogmateNativeHandler(),
 			PrintLogHandler()], first: true)
 	}
 	.childChannelOption(ChannelOptions.socket(IPPROTO_TCP, TCP_NODELAY), value: 1)
 	.childChannelOption(ChannelOptions.socket(SocketOptionLevel(SOL_SOCKET), SO_REUSEADDR), value: 1)
-//	.childChannelOption(ChannelOptions.maxMessagesPerRead, value: 1)
 	.childChannelOption(ChannelOptions.recvAllocator, value: AdaptiveRecvByteBufferAllocator())
 
 do {

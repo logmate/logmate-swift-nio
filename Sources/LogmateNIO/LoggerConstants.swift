@@ -1,6 +1,19 @@
+// Copyright © 2019 Florent Pillet
 //
-// Created by Florent Pillet on 2018-10-22.
+// Permission is hereby granted, free of charge, to any person obtaining a copy of this software
+// and associated documentation files (the "Software"), to deal in the Software without restriction,
+// including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense,
+// and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so,
+// subject to the following conditions:
 //
+// The above copyright notice and this permission notice shall be included in all copies or substantial
+// portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
+// LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+// IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+// WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
+// OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 /* NSLogger native binary message format:
  * Each message is a dictionary encoded in a compact format. All values are stored
@@ -43,7 +56,7 @@ enum MessageType: Int {
 	case mark = 5
 }
 
-enum PartKey: Int {
+public enum PartKey: Int {
 	case messageType = 0
 	case timestampSeconds = 1
 	case timestampMilliseconds = 2
@@ -65,6 +78,9 @@ enum PartKey: Int {
 	case osVersion = 23
 	case clientModel = 24
 	case clientUniqueID = 25
+	
+	// Area starting at which you may define your own constants (for userInfo data)
+	case firstCustomDataKey = 100
 
 	static func from(_ value: UInt8) -> PartKey? {
 		return self.init(rawValue: Int(value))
@@ -77,7 +93,7 @@ enum PartType: Int {
 	case int16 = 2
 	case int32 = 3
 	case int64 = 4
-	case image = 5
+	case imageData = 5
 
 	static func from(_ value: UInt8) -> PartType? {
 		return self.init(rawValue: Int(value))

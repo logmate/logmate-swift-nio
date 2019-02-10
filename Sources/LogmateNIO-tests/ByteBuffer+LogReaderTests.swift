@@ -1,11 +1,24 @@
+// Copyright © 2019 Florent Pillet
 //
-// Created by Florent Pillet on 2019-02-01.
+// Permission is hereby granted, free of charge, to any person obtaining a copy of this software
+// and associated documentation files (the "Software"), to deal in the Software without restriction,
+// including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense,
+// and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so,
+// subject to the following conditions:
 //
+// The above copyright notice and this permission notice shall be included in all copies or substantial
+// portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
+// LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+// IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+// WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
+// OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 import Foundation
 import XCTest
 import NIO
-@testable import NSLogger_NIO
+@testable import LogmateNIO
 
 final class ByteBuffer_LogReaderTests: XCTestCase {
 
@@ -14,44 +27,75 @@ final class ByteBuffer_LogReaderTests: XCTestCase {
 	}
 
 	func testBufferIsEmpty() {
-		let buffer = bufferFromHex("")
-		XCTAssertNil(try buffer.getNextLogEntry())
+		var buffer = bufferFromHex("")
+		XCTAssertNil(try buffer.consumeLogEntry())
 	}
 
 	func testBufferIsIncomplete() {
-		let buffer = bufferFromHex("00 00 00")
-		XCTAssertNil(try buffer.getNextLogEntry())
+		var buffer = bufferFromHex("00 00 00")
+		XCTAssertNil(try buffer.consumeLogEntry())
 	}
 
 	func testSizeFoundButBufferIsIncomplete() {
-		let buffer = bufferFromHex("00 00 00 10 00 00 00")
-		XCTAssertNil(try buffer.getNextLogEntry())
+		var buffer = bufferFromHex("00 00 00 10 00 00 00")
+		XCTAssertNil(try buffer.consumeLogEntry())
 	}
 
 	func testThrowsOnSpuriousMessageSize() {
-		let buffer = bufferFromHex("3E EF FF C0 00 05")
-		XCTAssertThrowsError(try buffer.getNextLogEntry())
+		var buffer = bufferFromHex("3E EF FF C0 00 05")
+		XCTAssertThrowsError(try buffer.consumeLogEntry())
 	}
 
 	func testThrowsOnMissingMessageType() {
-		let buffer = bufferFromHex("00 00 00 02 00 00")
-		XCTAssertThrowsError(try buffer.getNextLogEntry())
+		var buffer = bufferFromHex("00 00 00 02 00 00")
+		XCTAssertThrowsError(try buffer.consumeLogEntry())
+	}
+
+	func testReadingShortIntegers() throws {
+		var buffer = bufferFromHex(
+			"""
+			00 00 00 22
+			00 04
+			00 02 00 00
+			01 03 5c 55 5d 1a
+			07 00 00 00 00 0c 48 65 6C 6C 6F 2C 20 77 6F 72 6C 64
+			0A 02 00 07
+			""")
+
+		let log = try buffer.consumeLogEntry()
+		XCTAssertNotNil(log)
+		XCTAssertTrue(log is LogTextMessage?)
+		XCTAssertEqual(log!.sequence, 7)
+	}
+
+	func testReadingLongIntegers() throws {
+		var buffer = bufferFromHex(
+			"""
+			00 00 00 28
+			00 04
+			00 02 00 00
+			01 03 5c 55 5d 1a
+			07 00 00 00 00 0c 48 65 6C 6C 6F 2C 20 77 6F 72 6C 64
+			0A 04 00 00 00 00 00 00 00 07
+			""")
+		
+		let log = try buffer.consumeLogEntry()
+		XCTAssertNotNil(log)
+		XCTAssertTrue(log is LogTextMessage?)
+		XCTAssertEqual(log!.sequence, 7)
 	}
 
 	func testDecodeMinimalLogTextMessage() throws {
 		var buffer = bufferFromHex(
 			"""
 			00 00 00 24
-			00 05
+			00 04
 			00 02 00 00
 			01 03 5c 55 5d 1a
 			07 00 00 00 00 0c 48 65 6C 6C 6F 2C 20 77 6F 72 6C 64
 			0A 03 00 00 00 07
 			""")
-		let entry = try buffer.getNextLogEntry()
-		XCTAssertNotNil(entry)
-
-		let log = buffer.readLogEntry(entrySize: entry!.entrySize, type: entry!.type, sequence: entry!.sequence)
+		let log = try buffer.consumeLogEntry()
 		XCTAssertNotNil(log)
 		XCTAssertTrue(log is LogTextMessage?)
 
@@ -84,10 +128,7 @@ final class ByteBuffer_LogReaderTests: XCTestCase {
 			0C 02 00 2a
 			0D 00 00 00 00 0e 73 6F 6D 65 46 75 6E 63 74 69 6F 6E 28 29
 			""")
-		let entry = try buffer.getNextLogEntry()
-		XCTAssertNotNil(entry)
-
-		let log = buffer.readLogEntry(entrySize: entry!.entrySize, type: entry!.type, sequence: entry!.sequence)
+		let log = try buffer.consumeLogEntry()
 		XCTAssertNotNil(log)
 		XCTAssertTrue(log is LogTextMessage?)
 
@@ -121,10 +162,7 @@ final class ByteBuffer_LogReaderTests: XCTestCase {
 			0C 02 00 2a
 			0D 00 00 00 00 0e 73 6F 6D 65 46 75 6E 63 74 69 6F 6E 28 29
 			""")
-		let entry = try buffer.getNextLogEntry()
-		XCTAssertNotNil(entry)
-
-		let log = buffer.readLogEntry(entrySize: entry!.entrySize, type: entry!.type, sequence: entry!.sequence)
+		let log = try buffer.consumeLogEntry()
 		XCTAssertNotNil(log)
 		XCTAssertTrue(log is LogBinaryDataMessage?)
 
@@ -152,10 +190,7 @@ final class ByteBuffer_LogReaderTests: XCTestCase {
 			04 00 00 00 00 00
 			07 01 00 00 00 00
 			""")
-		let entry = try buffer.getNextLogEntry()
-		XCTAssertNotNil(entry)
-
-		let log = buffer.readLogEntry(entrySize: entry!.entrySize, type: entry!.type, sequence: entry!.sequence)
+		let log = try buffer.consumeLogEntry()
 		XCTAssertNotNil(log)
 		XCTAssertTrue(log is LogBinaryDataMessage?)
 
@@ -185,10 +220,7 @@ final class ByteBuffer_LogReaderTests: XCTestCase {
 			0A 03 00 00 00 01
 			""")
 
-		let entry = try buffer.getNextLogEntry()
-		XCTAssertNotNil(entry)
-
-		let log = buffer.readLogEntry(entrySize: entry!.entrySize, type: entry!.type, sequence: entry!.sequence)
+		let log = try buffer.consumeLogEntry()
 		XCTAssertNotNil(log)
 		XCTAssertTrue(log is LogImageMessage?)
 
@@ -222,10 +254,7 @@ final class ByteBuffer_LogReaderTests: XCTestCase {
 			09 03 00 00 03 00
 			""")
 
-		let entry = try buffer.getNextLogEntry()
-		XCTAssertNotNil(entry)
-
-		let log = buffer.readLogEntry(entrySize: entry!.entrySize, type: entry!.type, sequence: entry!.sequence)
+		let log = try buffer.consumeLogEntry()
 		XCTAssertNotNil(log)
 		XCTAssertTrue(log is LogImageMessage?)
 
@@ -256,10 +285,7 @@ final class ByteBuffer_LogReaderTests: XCTestCase {
 			17 00 00 00 00 07 31 30 2E 31 34 2E 31
 			""")
 
-		let entry = try buffer.getNextLogEntry()
-		XCTAssertNotNil(entry)
-
-		let log = buffer.readLogEntry(entrySize: entry!.entrySize, type: entry!.type, sequence: entry!.sequence)
+		let log = try buffer.consumeLogEntry()
 		XCTAssertNotNil(log)
 		XCTAssertTrue(log is LogClientInfo?)
 
@@ -270,6 +296,23 @@ final class ByteBuffer_LogReaderTests: XCTestCase {
 		XCTAssertEqual(message.clientModel, "")
 		XCTAssertEqual(message.osName, "macOS")
 		XCTAssertEqual(message.osVersion, "10.14.1")
+	}
+
+	func testDecodeDisconnectMessage() throws {
+		var buffer = bufferFromHex(
+			"""
+			00 00 00 0A
+			00 02
+			00 02 00 04
+			0A 02 00 01
+			""")
+
+		let log = try buffer.consumeLogEntry()
+		XCTAssertNotNil(log)
+		XCTAssertTrue(log is LogDisconnectMessage?)
+
+		let disconnect = log as! LogDisconnectMessage
+		XCTAssertEqual(disconnect.sequence, 1)
 	}
 
 	func testDecodeMultipleMessages() throws {
@@ -335,10 +378,7 @@ final class ByteBuffer_LogReaderTests: XCTestCase {
 			""")
 
 		// first: client info
-		let entry = try buffer.getNextLogEntry()
-		XCTAssertNotNil(entry)
-
-		let log = buffer.readLogEntry(entrySize: entry!.entrySize, type: entry!.type, sequence: entry!.sequence)
+		let log = try buffer.consumeLogEntry()
 		XCTAssertNotNil(log)
 		XCTAssertTrue(log is LogClientInfo?)
 
@@ -351,9 +391,7 @@ final class ByteBuffer_LogReaderTests: XCTestCase {
 		XCTAssertEqual(message.osVersion, "10.14.1")
 
 		// second: complete text message
-		let entry1 = try buffer.getNextLogEntry()
-		XCTAssertNotNil(entry1)
-		let log1 = buffer.readLogEntry(entrySize: entry1!.entrySize, type: entry1!.type, sequence: entry1!.sequence)
+		let log1 = try buffer.consumeLogEntry()
 		XCTAssertNotNil(log1)
 		XCTAssertTrue(log1 is LogTextMessage?)
 
@@ -370,10 +408,7 @@ final class ByteBuffer_LogReaderTests: XCTestCase {
 		XCTAssertEqual(message1.function, "someFunction()")
 
 		// third: binary data message
-		let entry2 = try buffer.getNextLogEntry()
-		XCTAssertNotNil(entry2)
-
-		let log2 = buffer.readLogEntry(entrySize: entry2!.entrySize, type: entry2!.type, sequence: entry2!.sequence)
+		let log2 = try buffer.consumeLogEntry()
 		XCTAssertNotNil(log2)
 		XCTAssertTrue(log2 is LogBinaryDataMessage?)
 
@@ -390,10 +425,7 @@ final class ByteBuffer_LogReaderTests: XCTestCase {
 		XCTAssertEqual(message2.function, "someFunction()")
 
 		// fourth: minimal text message
-		let entry3 = try buffer.getNextLogEntry()
-		XCTAssertNotNil(entry3)
-
-		let log3 = buffer.readLogEntry(entrySize: entry3!.entrySize, type: entry3!.type, sequence: entry3!.sequence)
+		let log3 = try buffer.consumeLogEntry()
 		XCTAssertNotNil(log3)
 		XCTAssertTrue(log3 is LogTextMessage?)
 
@@ -408,10 +440,7 @@ final class ByteBuffer_LogReaderTests: XCTestCase {
 		XCTAssertEqual(message3.message, "Hello, world")
 
 		// fifth: image messqge
-		let entry4 = try buffer.getNextLogEntry()
-		XCTAssertNotNil(entry4)
-
-		let log4 = buffer.readLogEntry(entrySize: entry4!.entrySize, type: entry4!.type, sequence: entry4!.sequence)
+		let log4 = try buffer.consumeLogEntry()
 		XCTAssertNotNil(log4)
 		XCTAssertTrue(log4 is LogImageMessage?)
 

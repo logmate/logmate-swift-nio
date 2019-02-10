@@ -1,6 +1,19 @@
+// Copyright © 2019 Florent Pillet
 //
-// Created by Florent Pillet on 2018-10-22.
+// Permission is hereby granted, free of charge, to any person obtaining a copy of this software
+// and associated documentation files (the "Software"), to deal in the Software without restriction,
+// including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense,
+// and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so,
+// subject to the following conditions:
 //
+// The above copyright notice and this permission notice shall be included in all copies or substantial
+// portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
+// LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+// IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+// WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
+// OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 import Foundation
 import NIO
@@ -8,56 +21,66 @@ import NIO
 enum LogDecoderError: Error {
 	case incompletePacket
 	case invalidLogPacket(String)
+	case unsupportedCustomDataType
 }
 
 fileprivate let entryHeaderSize = 2
 
 extension ByteBuffer {
 
-	func getNextLogEntry() throws -> (entrySize: Int, type: MessageType, sequence: Int)? {
-		guard self.readableBytes > MemoryLayout<UInt32>.size else {
+	mutating func consumeLogEntry() throws -> LogEntry? {
+		guard let (entrySize, type, sequence) = try getNextLogEntry() else {
 			return nil
 		}
-
-		guard let size = getInteger(at: self.readerIndex, as: UInt32.self).map(Int.init), size > 0 && size < 1_000_000_000 else {
-			throw LogDecoderError.invalidLogPacket("Missing or spurious log message size")
-		}
-
-		guard self.readableBytes >= MemoryLayout<UInt32>.size + size else {
-			return nil
-		}
-
-		guard let messageTypeInt: Int = getIntegerPart(key: .messageType),
-			  let messageType = MessageType(rawValue: messageTypeInt) else {
-			throw LogDecoderError.invalidLogPacket("Log entry missing required base components")
-		}
-		// sequence _may_ be 0, and in the original implementation in this case it is omitted
-		let sequence: Int = getIntegerPart(key: .sequenceNumber) ?? 0
-		return (entrySize: MemoryLayout<UInt32>.size + size, type: messageType, sequence: sequence)
-	}
-
-	mutating func readLogEntry(entrySize: Int, type: MessageType, sequence: Int) -> LogEntry? {
+		
 		defer { moveReaderIndex(forwardBy: entrySize) }
+		
 		switch type {
 			case .log:
-				return getLogMessage(type: type, size: entrySize, sequence: sequence)
+				return try getLogMessage(type: type, size: entrySize, sequence: sequence)
 			case .blockstart, .blockend:
 				return getBlockDelimiter(type: type, size: entrySize, sequence: sequence)
 			case .clientInfo:
 				return getClientInfo(size: entrySize, sequence: sequence)
 			case .mark:
 				return getLogMarker(size: entrySize, sequence: sequence)
-			default:
-				return nil
+			case .disconnect:
+				return getDisconnect(sequence: sequence)
 		}
 	}
 
-	func getLogMarker(size: Int, sequence: Int) -> LogMarker? {
+	private func getNextLogEntry() throws -> (entrySize: Int, type: MessageType, sequence: Int)? {
+		guard self.readableBytes > MemoryLayout<UInt32>.size else {
+			return nil
+		}
+		
+		guard let size = getInteger(at: self.readerIndex, as: UInt32.self).map(Int.init), size > 0 && size < 1_000_000_000 else {
+			throw LogDecoderError.invalidLogPacket("Missing or spurious log message size")
+		}
+		
+		guard self.readableBytes >= MemoryLayout<UInt32>.size + size else {
+			return nil
+		}
+		
+		guard let messageTypeInt: Int = getIntegerPart(key: .messageType),
+			let messageType = MessageType(rawValue: messageTypeInt) else {
+				throw LogDecoderError.invalidLogPacket("Log entry missing required base components")
+		}
+		// sequence _may_ be 0, and in the original implementation in this case it is omitted
+		let sequence: Int = getIntegerPart(key: .sequenceNumber) ?? 0
+		return (entrySize: MemoryLayout<UInt32>.size + size, type: messageType, sequence: sequence)
+	}
+
+	func getLogMarker(size: Int, sequence: Int) -> LogMarker {
 		return LogMarker(sequence: sequence,
 						 mark: getString(key: .logMessage) ?? "")
 	}
+	
+	func getDisconnect(sequence: Int) -> LogDisconnectMessage {
+		return LogDisconnectMessage(sequence: sequence)
+	}
 
-	func getLogMessage(type: MessageType, size: Int, sequence: Int) -> LogEntry? {
+	func getLogMessage(type: MessageType, size: Int, sequence: Int) throws -> LogEntry? {
 		guard let logPart = findPart(key: .logMessage),
 			  let timestamp = getTimestamp() else {
 			return nil
@@ -69,7 +92,7 @@ extension ByteBuffer {
 		let filename = getString(key: .file)
 		let function = getString(key: .function)
 		let line: Int = getIntegerPart(key: .line) ?? 0
-		let userInfo: [Int:Any]? = collectUserDefinedValues()
+		let userInfo: [Int:Data]? = try collectUserDefinedValues()
 
 		switch logPart.type {
 			case .utf8String:
@@ -99,7 +122,7 @@ extension ByteBuffer {
 										line: line,
 										data: data)
 
-			case .image:
+			case .imageData:
 				guard let data = getData(at: logPart.dataOffset, length: logPart.dataSize) else {
 					return nil
 				}
@@ -140,7 +163,7 @@ extension ByteBuffer {
 		let dataSize: Int
 		let dataOffset: Int
 		switch type {
-			case .utf8String, .binaryData, .image:
+			case .utf8String, .binaryData, .imageData:
 				guard let ps = self.getInteger(at: offset, as: UInt32.self) else {
 					return nil
 				}
@@ -162,46 +185,36 @@ extension ByteBuffer {
 		return (dataOffset: dataOffset, dataSize: dataSize)
 	}
 
-	func getPart(at offset: Int) -> (key: PartKey, type: PartType, dataOffset: Int, dataSize: Int)? {
-		guard let key = getInteger(at: offset).flatMap(PartKey.from),
+	func getPart(at offset: Int) -> (key: Int, type: PartType, dataOffset: Int, dataSize: Int)? {
+		guard let key: UInt8 = getInteger(at: offset),
 			  let type = getInteger(at: offset + 1).flatMap(PartType.from),
 			  let partInfo = getPartInfo(at: offset + 2, type: type) else {
 			return nil
 		}
-		return (key: key, type: type, dataOffset: partInfo.dataOffset, dataSize: partInfo.dataSize)
+		return (key: Int(key), type: type, dataOffset: partInfo.dataOffset, dataSize: partInfo.dataSize)
 	}
 
-	func collectUserDefinedValues() -> [Int:Any]? {
-		var collection: [Int:Any]? = nil
+	func collectUserDefinedValues() throws -> [Int:Data]? {
+		var collection: [Int:Data]? = nil
 		guard let numberOfParts = self.getInteger(at: self.readerIndex + MemoryLayout<UInt32>.size, as: UInt16.self).flatMap(Int.init) else {
 			return nil
 		}
 		var currentOffset = self.readerIndex + MemoryLayout<UInt32>.size + MemoryLayout<UInt16>.size
 		for _ in 0 ..< numberOfParts {
 			guard let key = getInteger(at: currentOffset, as: UInt8.self),
-				  PartKey.from(key) == nil,
+				  key >= PartKey.firstCustomDataKey.rawValue,
 				  let type = getInteger(at: currentOffset + 1).flatMap(PartType.from),
 				  let (dataOffset, dataSize) = getPartInfo(at: currentOffset + 2, type: type) else {
 				return nil
 			}
-			let partContents: Any?
-			switch type {
-				case .utf8String:
-					partContents = getString(at: dataOffset, length: dataSize)
-				case .binaryData, .image:
-					partContents = getData(at: dataOffset, length: dataSize)
-				case .int16:
-					partContents = getInteger(at: dataOffset, as: Int16.self).flatMap(Int.init)
-				case .int32:
-					partContents = getInteger(at: dataOffset, as: Int32.self).flatMap(Int.init)
-				case .int64:
-					partContents = getInteger(at: dataOffset, as: Int64.self).flatMap(Int.init)
+			guard case .binaryData = type else {
+				throw LogDecoderError.unsupportedCustomDataType
 			}
-			if let partData = partContents {
+			if let data = getData(at: dataOffset, length: dataSize) {
 				if collection == nil {
-					collection = [Int(key):partData]
+					collection = [Int(key):data]
 				} else {
-					collection![Int(key)] = partData
+					collection![Int(key)] = data
 				}
 			}
 			currentOffset = dataOffset + dataSize
@@ -209,7 +222,7 @@ extension ByteBuffer {
 		return collection
 	}
 
-	func findPart(key: PartKey) -> (key: PartKey, type: PartType, dataOffset: Int, dataSize: Int)? {
+	func findPart(key: PartKey) -> (type: PartType, dataOffset: Int, dataSize: Int)? {
 		guard let numberOfParts = self.getInteger(at: self.readerIndex + MemoryLayout<UInt32>.size, as: UInt16.self).flatMap(Int.init) else {
 			return nil
 		}
@@ -218,8 +231,8 @@ extension ByteBuffer {
 			guard let part = getPart(at: currentOffset) else {
 				return nil
 			}
-			if part.key == key {
-				return part
+			if part.key == key.rawValue {
+				return (type: part.type, dataOffset: part.dataOffset, dataSize: part.dataSize)
 			}
 			currentOffset = part.dataOffset + part.dataSize
 		}
@@ -227,7 +240,7 @@ extension ByteBuffer {
 	}
 
 	func getIntegerPart<T>(key: PartKey) -> T? where T: FixedWidthInteger {
-		guard let (_, partType, dataOffset, _) = findPart(key: key) else {
+		guard let (partType, dataOffset, _) = findPart(key: key) else {
 			return nil
 		}
 		switch partType {
