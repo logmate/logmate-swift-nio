@@ -16,7 +16,6 @@
 // OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 import Foundation
-import NIO
 
 public typealias LogTimestamp = timeval
 
