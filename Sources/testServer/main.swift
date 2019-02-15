@@ -19,8 +19,6 @@ import Foundation
 import NIO
 import LogmateNIO
 
-fileprivate let nibbles = ["0","1","2","3","4","5","6","7","8","9","A","B","C","D","E","F"]
-
 public final class PrintLogHandler: ChannelInboundHandler {
 	public typealias InboundIn = LogEntry
 
@@ -43,7 +41,7 @@ public final class PrintLogHandler: ChannelInboundHandler {
 				var hex = "", ascii = ""
 				for i in 0 ..< min(16, data.count - offset) {
 					let c = pointer.advanced(by: offset + i).pointee
-					hex += "\(nibbles[Int(c >> 4)])\(nibbles[Int(c & 15)]) "
+					hex += String(format: "%02X ", c)
 					ascii += c >= 32 ? Unicode.Scalar(c).escaped(asASCII: false) : "."
 				}
 				if hex.count < 48 {

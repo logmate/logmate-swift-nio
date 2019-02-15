@@ -19,23 +19,6 @@ import Foundation
 import XCTest
 import NIO
 
-fileprivate let hex = [Character("0"),
-					   Character("1"),
-					   Character("2"),
-					   Character("3"),
-					   Character("4"),
-					   Character("5"),
-					   Character("6"),
-					   Character("7"),
-					   Character("8"),
-					   Character("9"),
-					   Character("A"),
-					   Character("B"),
-					   Character("C"),
-					   Character("D"),
-					   Character("E"),
-					   Character("F")]
-
 extension XCTestCase {
 	func bytesFromHex(_ data: String) -> [UInt8] {
 		guard !data.isEmpty else {
@@ -49,12 +32,10 @@ extension XCTestCase {
 				guard !s.isEmpty else {
 					return nil
 				}
-				guard s.count == 2,
-					  let high = hex.firstIndex(of: string[string.startIndex]),
-					  let low = hex.firstIndex(of: string[string.index(after: string.startIndex)]) else {
+				guard s.count == 2, let byte = UInt8(s, radix: 16) else {
 					fatalError("invalid hex string: \(data)")
 				}
-				return UInt8(high) << 4 | UInt8(low)
+				return byte
 			}
 	}
 

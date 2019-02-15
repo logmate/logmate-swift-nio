@@ -21,9 +21,24 @@ import NIO
 @testable import LogmateNIO
 
 final class ByteBuffer_LogWriterTests: XCTestCase {
-	
+
 	lazy var referenceTime: LogTimestamp = timeval(tv_sec: Int(Date().timeIntervalSinceReferenceDate), tv_usec: 12345)
-	
+
+	fileprivate func consumeAndCompareMessage<T:LogEntry>(buffer: inout ByteBuffer, message: T) throws {
+		let result = try buffer.consumeLogEntry()
+		XCTAssertNotNil(result)
+		XCTAssertTrue(result is T)
+		XCTAssertEqual(result as! T, message)
+	}
+
+	fileprivate func writeConsumeAndCompareMessage<T:LogEntry>(_ message: T) throws {
+		var buffer = ByteBufferAllocator().buffer(capacity: 0)
+		try buffer.write(message)
+		XCTAssertNotEqual(buffer.writerIndex, 0)
+
+		try consumeAndCompareMessage(buffer: &buffer, message: message)
+	}
+
 	func testShortIntegerWrites() throws {
 		let entry = LogDisconnectMessage(sequence: Int(Int16.max))
 		var buffer = ByteBufferAllocator().buffer(capacity: 0)
@@ -68,7 +83,7 @@ final class ByteBuffer_LogWriterTests: XCTestCase {
 									 message: "")
 		try	writeConsumeAndCompareMessage(message)
 	}
-	
+
 	func testMinimalLogTextMessage() throws {
 		let message = LogTextMessage(sequence: 1,
 										 timestamp: referenceTime,
@@ -77,7 +92,7 @@ final class ByteBuffer_LogWriterTests: XCTestCase {
 										 message: "Some log message")
 		try	writeConsumeAndCompareMessage(message)
 	}
-	
+
 	func testCompleteLogTextMessage() throws {
 		let message = LogTextMessage(sequence: 2342,
 									 timestamp: referenceTime,
@@ -90,7 +105,7 @@ final class ByteBuffer_LogWriterTests: XCTestCase {
 									 message: "Some log message")
 		try	writeConsumeAndCompareMessage(message)
 	}
-	
+
 	func testLogTextMessageWithEmptyUserInfo() throws {
 		let message = LogTextMessage(sequence: 1,
 									 timestamp: referenceTime,
@@ -100,7 +115,7 @@ final class ByteBuffer_LogWriterTests: XCTestCase {
 									 message: "Some log message")
 		try	writeConsumeAndCompareMessage(message)
 	}
-	
+
 	func testLogTextMessageWithUserInfo() throws {
 		let message = LogTextMessage(sequence: 1,
 									 timestamp: referenceTime,
@@ -112,7 +127,7 @@ final class ByteBuffer_LogWriterTests: XCTestCase {
 									 message: "Some log message")
 		try	writeConsumeAndCompareMessage(message)
 	}
-	
+
 	func testMinimalEmptyBinaryDataMessage() throws {
 		let message = LogBinaryDataMessage(sequence: 6534534,
 										   timestamp: referenceTime,
@@ -121,7 +136,7 @@ final class ByteBuffer_LogWriterTests: XCTestCase {
 										   data: Data())
 		try	writeConsumeAndCompareMessage(message)
 	}
-	
+
 	func testMinimalBinaryDataMessage() throws {
 		let message = LogBinaryDataMessage(sequence: 6534534,
 										   timestamp: referenceTime,
@@ -144,7 +159,7 @@ final class ByteBuffer_LogWriterTests: XCTestCase {
 										   data: dataFromHex("01 02 03 04 05 06 07 08 09 AA BB CC DD EE FF 00"))
 		try	writeConsumeAndCompareMessage(message)
 	}
-	
+
 	func testBinaryDataMessageWithUserInfo() throws {
 		let message = LogBinaryDataMessage(sequence: 6534534,
 										   timestamp: referenceTime,
@@ -165,7 +180,7 @@ final class ByteBuffer_LogWriterTests: XCTestCase {
 									  imageData: Data())
 		try	writeConsumeAndCompareMessage(message)
 	}
-	
+
 	func testMinimalImageDataMessage() throws {
 		let message = LogImageMessage(sequence: 6534534,
 										   timestamp: referenceTime,
@@ -174,7 +189,7 @@ final class ByteBuffer_LogWriterTests: XCTestCase {
 										   imageData: dataFromHex("01 02 03 04 05 06 07 08 09 AA BB CC DD EE FF 00"))
 		try	writeConsumeAndCompareMessage(message)
 	}
-	
+
 	func testCompleteImageDataMessage() throws {
 		let message = LogImageMessage(sequence: 234523423,
 										   timestamp: referenceTime,
@@ -191,7 +206,7 @@ final class ByteBuffer_LogWriterTests: XCTestCase {
 		
 		try writeConsumeAndCompareMessage(message)
 	}
-	
+
 	func testDisconnectMessage() throws {
 		let message = LogDisconnectMessage(sequence: 12345)
 		try writeConsumeAndCompareMessage(message)
@@ -207,22 +222,22 @@ final class ByteBuffer_LogWriterTests: XCTestCase {
 									osVersion: "10.14")
 		try writeConsumeAndCompareMessage(message)
 	}
-	
+
 	func testLogMarkerMessage() throws {
 		let message = LogMarker(sequence: 23423, mark: "Some test mark")
 		try writeConsumeAndCompareMessage(message)
 	}
-	
+
 	func testBlockStartDelimiterMessage() throws {
 		let message = LogBlockDelimiter(sequence: 121231, start: true)
 		try writeConsumeAndCompareMessage(message)
 	}
-	
+
 	func testBlockEndDelimiterMessage() throws {
 		let message = LogBlockDelimiter(sequence: 121231, start: false)
 		try writeConsumeAndCompareMessage(message)
 	}
-	
+
 	func testMultipleMessagesInSameBuffer() throws {
 		let message1 = LogClientInfo(sequence: 1,
 									clientName: "TestApplication",
@@ -274,20 +289,5 @@ final class ByteBuffer_LogWriterTests: XCTestCase {
 		try consumeAndCompareMessage(buffer: &buffer, message: message4)
 		try consumeAndCompareMessage(buffer: &buffer, message: message5)
 		try consumeAndCompareMessage(buffer: &buffer, message: message6)
-	}
-	
-	fileprivate func consumeAndCompareMessage<T:LogEntry>(buffer: inout ByteBuffer, message: T) throws {
-		let result = try buffer.consumeLogEntry()
-		XCTAssertNotNil(result)
-		XCTAssertTrue(result is T)
-		XCTAssertEqual(result as! T, message)
-	}
-
-	fileprivate func writeConsumeAndCompareMessage<T:LogEntry>(_ message: T) throws {
-		var buffer = ByteBufferAllocator().buffer(capacity: 0)
-		try buffer.write(message)
-		XCTAssertNotEqual(buffer.writerIndex, 0)
-		
-		try consumeAndCompareMessage(buffer: &buffer, message: message)
 	}
 }
