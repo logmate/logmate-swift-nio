@@ -1,4 +1,4 @@
-// Copyright © 2019 Florent Pillet
+// Copyright © 2020 Florent Pillet
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy of this software
 // and associated documentation files (the "Software"), to deal in the Software without restriction,
@@ -17,6 +17,8 @@
 
 import Foundation
 import NIO
+import Logmate
+import LogmateNIO
 
 public enum LoggerEvent {
 	case connected(LogClientInfo)
@@ -37,18 +39,18 @@ public class LogmateNativeHandler: ByteToMessageDecoder, MessageToByteEncoder {
 	// ByteToMessageDecoder
 	public var cumulationBuffer: ByteBuffer?
 
-	public func decode(ctx: ChannelHandlerContext, buffer: inout ByteBuffer) throws -> DecodingState {
-		guard let log = try buffer.consumeLogEntry() else {
+	public func decode(context: ChannelHandlerContext, buffer: inout ByteBuffer) throws -> DecodingState {
+		guard let log = try buffer.readNextLogEntry() else {
 			return .needMoreData
 		}
 		
-		ctx.fireChannelRead(self.wrapInboundOut(log))
+		context.fireChannelRead(self.wrapInboundOut(log))
 		
 		switch log {
 		case let connected as LogClientInfo:
-			ctx.fireUserInboundEventTriggered(LoggerEvent.connected(connected))
+			context.fireUserInboundEventTriggered(LoggerEvent.connected(connected))
 		case is LogDisconnectMessage:
-			ctx.fireUserInboundEventTriggered(LoggerEvent.disconnected)
+			context.fireUserInboundEventTriggered(LoggerEvent.disconnected)
 		default:
 			break
 		}
@@ -56,8 +58,13 @@ public class LogmateNativeHandler: ByteToMessageDecoder, MessageToByteEncoder {
 		return .continue
 	}
 	
+	public func decodeLast(context: ChannelHandlerContext, buffer: inout ByteBuffer, seenEOF: Bool) throws -> DecodingState {
+		.continue
+	}
+
+	
 	// MessageToByteEncoder
-	public func encode(ctx: ChannelHandlerContext, data: LogEntry, out: inout ByteBuffer) throws {
+	public func encode(data: LogEntry, out: inout ByteBuffer) throws {
 		try out.write(data)
 	}
 }

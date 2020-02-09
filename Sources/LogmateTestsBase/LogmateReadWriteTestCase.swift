@@ -16,30 +16,47 @@
 // OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 import Foundation
-import NIO
-import LogmateServer
+import XCTest
+@testable import Logmate
 
-
-let group = MultiThreadedEventLoopGroup(numberOfThreads: 2)
-let codec = LogmateNativeHandler()
-let bootstrap = ServerBootstrap(group: group)
-	.serverChannelOption(ChannelOptions.backlog, value: 256)
-	.serverChannelOption(ChannelOptions.socket(SocketOptionLevel(SOL_SOCKET), SO_REUSEADDR), value: 1)
-	.childChannelInitializer { channel in
-		channel.pipeline.addHandlers([
-			ByteToMessageHandler(codec),
-			MessageToByteHandler(codec),
-			PrintLogHandler()], position: .first)
+open class LogmateReadWriteTestCase: XCTestCase {
+	open func isFinalTestClass() -> Bool {
+		// to avoid running tests on the intermediate (generic) test classes
+		// only the final test class (which implements `logDataFromHex`)
+		// returns true
+		false
 	}
-//	.childChannelOption(ChannelOptions.socket(IPPROTO_TCP, TCP_NODELAY), value: 1)
-//	.childChannelOption(ChannelOptions.socket(SocketOptionLevel(SOL_SOCKET), SO_REUSEADDR), value: 1)
-//	.childChannelOption(ChannelOptions.recvAllocator, value: AdaptiveRecvByteBufferAllocator())
 
-do {
-	let logServer = try bootstrap.bind(host: "::1", port: 50007).wait()
-	print("Log server running - listening on port \(logServer.localAddress!)")
-	try logServer.closeFuture.wait()	// run forever
-}
-catch let err {
-	print("Failed bootstrapping server: err=\(err)")
+	override open func invokeTest() {
+		if isFinalTestClass() {
+			super.invokeTest()
+		}
+	}
+
+	open func logDataFromHex(_ data: String) -> LogReader {
+		fatalError("subclasses must implement bufferFromHex")
+	}
+
+	public func bytesFromHex(_ data: String) -> [UInt8] {
+		guard !data.isEmpty else {
+			return []
+		}
+		return data
+			.uppercased()
+			.components(separatedBy: .whitespacesAndNewlines)
+			.compactMap { (string: String) -> UInt8? in
+				let s = string.trimmingCharacters(in: .whitespacesAndNewlines)
+				guard !s.isEmpty else {
+					return nil
+				}
+				guard s.count == 2, let byte = UInt8(s, radix: 16) else {
+					fatalError("invalid hex string: \(data)")
+				}
+				return byte
+			}
+	}
+
+	public func dataFromHex(_ data: String) -> Data {
+		return Data(bytesFromHex(data))
+	}
 }

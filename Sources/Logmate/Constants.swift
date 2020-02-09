@@ -1,4 +1,4 @@
-// Copyright © 2019 Florent Pillet
+// Copyright © 2020 Florent Pillet
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy of this software
 // and associated documentation files (the "Software"), to deal in the Software without restriction,
@@ -47,7 +47,7 @@
 
 import Foundation
 
-enum MessageType: Int {
+public enum MessageType: Int {
 	case log = 0
 	case blockstart = 1
 	case blockend = 2
@@ -87,7 +87,7 @@ public enum PartKey: Int {
 	}
 }
 
-enum PartType: Int {
+public enum PartType: Int {
 	case utf8String = 0
 	case binaryData = 1
 	case int16 = 2
